@@ -37,8 +37,10 @@ def parse_database_url(db_url: str):
 
 def get_mysql_conn():
 	# Prefer full URL
+	
 	db_url = os.environ.get("DATABASE_URL") or os.environ.get("DB_URL")
 	cfg = None
+	db_url='mysql+pymysql://root:Evcat807@DESKTOP-HVDKJP2:3306/project3'
 	if db_url:
 		if not db_url.startswith("mysql"):
 			print("DATABASE_URL provided but not a MySQL URL. Provide a MySQL URL like mysql+pymysql://user:pass@host:3306/dbname")
@@ -426,6 +428,7 @@ def list_events(conn, current_user: Optional[dict] = None):
 
 
 def main():
+	
 	conn = get_mysql_conn()
 	init_db(conn)
 	current_user = None
