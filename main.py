@@ -429,7 +429,7 @@ def list_events(conn, current_user: Optional[dict] = None):
 
 
 def main():
-	
+	print("Canvas API URL format: https://your-canvas-instance.instructure.com/api/v1/courses")
 	conn = get_mysql_conn()
 	init_db(conn)
 	current_user = None
