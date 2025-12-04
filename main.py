@@ -62,42 +62,127 @@ def get_mysql_conn():
 
 def init_db(conn):
 	with conn.cursor() as cur:
+		# Users
 		cur.execute("""
 		CREATE TABLE IF NOT EXISTS users (
-			id VARCHAR(36) PRIMARY KEY,
+			User_ID VARCHAR(36) PRIMARY KEY,
 			username VARCHAR(255) UNIQUE NOT NULL,
 			password_hash VARCHAR(128) NOT NULL,
 			salt VARCHAR(36) NOT NULL,
 			is_admin TINYINT(1) DEFAULT 0
 		) ENGINE=InnoDB;
 		""")
+
+		# Courses
 		cur.execute("""
 		CREATE TABLE IF NOT EXISTS courses (
-			id VARCHAR(36) PRIMARY KEY,
-			canvas_id VARCHAR(255) UNIQUE NOT NULL,
-			name VARCHAR(255) NOT NULL
-		) ENGINE=InnoDB;
-		""")
-		cur.execute("""
-		CREATE TABLE IF NOT EXISTS academic_events (
-			id VARCHAR(36) PRIMARY KEY,
-			course_id VARCHAR(36),
+			Course_ID VARCHAR(36) PRIMARY KEY,
+			Course_code VARCHAR(255) UNIQUE NOT NULL,
 			title VARCHAR(255) NOT NULL,
-			start_dt DATETIME NULL,
-			end_dt DATETIME NULL,
-			FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
+			department VARCHAR(255) NULL
 		) ENGINE=InnoDB;
 		""")
+
+		# Sections
+		cur.execute("""
+		CREATE TABLE IF NOT EXISTS sections (
+			Section_ID VARCHAR(36) PRIMARY KEY,
+			Course_ID VARCHAR(36) NULL,
+			term_code VARCHAR(64) NULL,
+			section_number VARCHAR(64) NULL,
+			instructor_name VARCHAR(255) NULL,
+			FOREIGN KEY (Course_ID) REFERENCES courses(Course_ID) ON DELETE SET NULL
+		) ENGINE=InnoDB;
+		""")
+
+		# Source integration
+		cur.execute("""
+		CREATE TABLE IF NOT EXISTS source_integration (
+			Source_ID VARCHAR(36) PRIMARY KEY,
+			provider VARCHAR(255) NULL,
+			status VARCHAR(64) NULL
+		) ENGINE=InnoDB;
+		""")
+
+		# Calendars
+		cur.execute("""
+		CREATE TABLE IF NOT EXISTS calendars (
+			Cal_ID VARCHAR(36) PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			visibility VARCHAR(64) NULL,
+			color VARCHAR(64) NULL,
+			User_ID VARCHAR(36) NULL,
+			FOREIGN KEY (User_ID) REFERENCES users(User_ID) ON DELETE SET NULL
+		) ENGINE=InnoDB;
+		""")
+
+		# Events (base)
 		cur.execute("""
 		CREATE TABLE IF NOT EXISTS events (
-			id VARCHAR(36) PRIMARY KEY,
-			owner_id VARCHAR(36) NOT NULL,
+			Event_ID VARCHAR(36) PRIMARY KEY,
 			title VARCHAR(255) NOT NULL,
 			start_dt DATETIME NULL,
 			end_dt DATETIME NULL,
 			status VARCHAR(64) NULL,
 			priority VARCHAR(64) NULL,
-			FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
+			User_ID VARCHAR(36) NULL,
+			Course_ID VARCHAR(36) NULL,
+			Section_ID VARCHAR(36) NULL,
+			Source_ID VARCHAR(36) NULL,
+			Cal_ID VARCHAR(36) NULL,
+			FOREIGN KEY (User_ID) REFERENCES users(User_ID) ON DELETE SET NULL,
+			FOREIGN KEY (Course_ID) REFERENCES courses(Course_ID) ON DELETE SET NULL,
+			FOREIGN KEY (Section_ID) REFERENCES sections(Section_ID) ON DELETE SET NULL,
+			FOREIGN KEY (Source_ID) REFERENCES source_integration(Source_ID) ON DELETE SET NULL,
+			FOREIGN KEY (Cal_ID) REFERENCES calendars(Cal_ID) ON DELETE SET NULL
+		) ENGINE=InnoDB;
+		""")
+
+		# AcademicEvent (subtype of Event)
+		cur.execute("""
+		CREATE TABLE IF NOT EXISTS academic_events (
+			Event_ID VARCHAR(36) PRIMARY KEY,
+			due_dt DATETIME NULL,
+			academic_type VARCHAR(128) NULL,
+			FOREIGN KEY (Event_ID) REFERENCES events(Event_ID) ON DELETE CASCADE
+		) ENGINE=InnoDB;
+		""")
+
+		# PersonalEvent (subtype of Event)
+		cur.execute("""
+		CREATE TABLE IF NOT EXISTS personal_events (
+			Event_ID VARCHAR(36) PRIMARY KEY,
+			privacy VARCHAR(64) NULL,
+			FOREIGN KEY (Event_ID) REFERENCES events(Event_ID) ON DELETE CASCADE
+		) ENGINE=InnoDB;
+		""")
+
+		# Reminders
+		cur.execute("""
+		CREATE TABLE IF NOT EXISTS reminders (
+			Reminder_ID VARCHAR(36) PRIMARY KEY,
+			Event_ID VARCHAR(36) NOT NULL,
+			offset_minutes INT NULL,
+			method VARCHAR(64) NULL,
+			FOREIGN KEY (Event_ID) REFERENCES events(Event_ID) ON DELETE CASCADE
+		) ENGINE=InnoDB;
+		""")
+
+		# Tags and association
+		cur.execute("""
+		CREATE TABLE IF NOT EXISTS tags (
+			Tag_ID VARCHAR(36) PRIMARY KEY,
+			name VARCHAR(255) NOT NULL
+		) ENGINE=InnoDB;
+		""")
+
+		cur.execute("""
+		CREATE TABLE IF NOT EXISTS event_tags (
+			Event_ID VARCHAR(36) NOT NULL,
+			Tag_ID VARCHAR(36) NOT NULL,
+			PRIMARY KEY (Event_ID, Tag_ID),
+			FOREIGN KEY (Event_ID) REFERENCES events(Event_ID) ON DELETE CASCADE,
+			FOREIGN KEY (Tag_ID) REFERENCES tags(Tag_ID) ON DELETE CASCADE
 		) ENGINE=InnoDB;
 		""")
 	conn.commit()
@@ -133,9 +218,9 @@ def add_user(conn, current_user: Optional[dict] = None):
 	uid = gen_id()
 	with conn.cursor() as cur:
 		try:
-			cur.execute("INSERT INTO users (id, username, password_hash, salt, is_admin) VALUES (%s,%s,%s,%s,%s)", (uid, username, hash_password(password, salt), salt, int(is_admin)))
+			cur.execute("INSERT INTO users (User_ID, username, password_hash, salt, is_admin) VALUES (%s,%s,%s,%s,%s)", (uid, username, hash_password(password, salt), salt, int(is_admin)))
 			conn.commit()
-			print(f"Created user {username} (id={uid})")
+			print(f"Created user {username} (User_ID={uid})")
 		except Exception as e:
 			conn.rollback()
 			print("Failed to create user:", e)
@@ -147,13 +232,13 @@ def delete_user(conn, current_user: Optional[dict] = None):
 		return
 	username = input("Username to delete: ").strip()
 	with conn.cursor() as cur:
-		cur.execute("SELECT id FROM users WHERE username=%s", (username,))
+		cur.execute("SELECT User_ID FROM users WHERE username=%s", (username,))
 		row = cur.fetchone()
 		if not row:
 			print("User not found")
 			return
 		try:
-			cur.execute("DELETE FROM users WHERE id=%s", (row["id"],))
+			cur.execute("DELETE FROM users WHERE User_ID=%s", (row["User_ID"],))
 			conn.commit()
 			print(f"Deleted user {username}")
 		except Exception as e:
@@ -178,13 +263,13 @@ def modify_user(conn, current_user: Optional[dict] = None):
 	try:
 		with conn.cursor() as cur:
 			if new_username:
-				cur.execute("UPDATE users SET username=%s WHERE id=%s", (new_username, user["id"]))
+				cur.execute("UPDATE users SET username=%s WHERE User_ID=%s", (new_username, user["User_ID"]))
 			if change_pw:
 				new_pw = input("New password: ")
 				salt = gen_id()
-				cur.execute("UPDATE users SET password_hash=%s, salt=%s WHERE id=%s", (hash_password(new_pw, salt), salt, user["id"]))
+				cur.execute("UPDATE users SET password_hash=%s, salt=%s WHERE User_ID=%s", (hash_password(new_pw, salt), salt, user["User_ID"]))
 			if admin_input:
-				cur.execute("UPDATE users SET is_admin=%s WHERE id=%s", (int(admin_input.startswith("y")), user["id"]))
+				cur.execute("UPDATE users SET is_admin=%s WHERE User_ID=%s", (int(admin_input.startswith("y")), user["User_ID"]))
 			conn.commit()
 			print("User updated")
 	except Exception as e:
@@ -212,9 +297,14 @@ def add_personal_event(conn, current_user: dict):
 	eid = gen_id()
 	try:
 		with conn.cursor() as cur:
-			cur.execute("INSERT INTO events (id, owner_id, title, start_dt, end_dt, status, priority) VALUES (%s,%s,%s,%s,%s,%s,%s)", (eid, current_user["id"], title, parse_dt(start), parse_dt(end), status, priority))
+			cur.execute(
+				"INSERT INTO events (Event_ID, User_ID, title, start_dt, end_dt, status, priority) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+				(eid, current_user["User_ID"], title, parse_dt(start), parse_dt(end), status, priority),
+			)
+			# Also create a PersonalEvent row (subtype) with privacy
+			cur.execute("INSERT INTO personal_events (Event_ID, privacy) VALUES (%s,%s)", (eid, None))
 			conn.commit()
-			print(f"Event created (id={eid})")
+			print(f"Event created (Event_ID={eid})")
 	except Exception as e:
 		conn.rollback()
 		print("Failed to create event:", e)
@@ -224,20 +314,20 @@ def delete_event(conn, current_user: Optional[dict] = None):
 	eid = input("Event id to delete: ").strip()
 	try:
 		with conn.cursor() as cur:
-			cur.execute("SELECT * FROM events WHERE id=%s", (eid,))
+			cur.execute("SELECT * FROM events WHERE Event_ID=%s", (eid,))
 			ev = cur.fetchone()
 			if ev:
-				if current_user and not current_user.get("is_admin") and ev["owner_id"] != current_user.get("id"):
+				if current_user and not current_user.get("is_admin") and ev["User_ID"] != current_user.get("User_ID"):
 					print("Cannot delete others' events")
 					return
-				cur.execute("DELETE FROM events WHERE id=%s", (eid,))
+				cur.execute("DELETE FROM events WHERE Event_ID=%s", (eid,))
 				conn.commit()
 				print("Event deleted")
 				return
-			cur.execute("SELECT * FROM academic_events WHERE id=%s", (eid,))
+			cur.execute("SELECT * FROM academic_events WHERE Event_ID=%s", (eid,))
 			ae = cur.fetchone()
 			if ae:
-				cur.execute("DELETE FROM academic_events WHERE id=%s", (eid,))
+				cur.execute("DELETE FROM academic_events WHERE Event_ID=%s", (eid,))
 				conn.commit()
 				print("Academic event deleted")
 				return
@@ -275,14 +365,15 @@ def import_canvas_data(conn):
 			for c in courses:
 				canvas_id = str(c.get("id"))
 				name = c.get("name") or c.get("course_name") or f"Course {canvas_id}"
-				cur.execute("SELECT id FROM courses WHERE canvas_id=%s", (canvas_id,))
+				department = c.get("department")
+				cur.execute("SELECT Course_ID FROM courses WHERE Course_code=%s", (canvas_id,))
 				row = cur.fetchone()
 				if row:
-					course_id = row["id"]
+					course_id = row["Course_ID"]
 				else:
 					course_id = gen_id()
-					cur.execute("INSERT INTO courses (id, canvas_id, name) VALUES (%s,%s,%s)", (course_id, canvas_id, name))
-					print(f"Added course {name} (canvas_id={canvas_id})")
+					cur.execute("INSERT INTO courses (Course_ID, Course_code, title, department) VALUES (%s,%s,%s,%s)", (course_id, canvas_id, name, department))
+					print(f"Added course {name} (Course_code={canvas_id})")
 				events = c.get("events") or c.get("assignments") or []
 				for e in events:
 					title = e.get("title") or e.get("name") or "Untitled"
@@ -295,10 +386,17 @@ def import_canvas_data(conn):
 							except Exception:
 								continue
 						return None
-					start_dt = parse_dt_field(e.get("start")) or parse_dt_field(e.get("start_at")) or parse_dt_field(e.get("due_at"))
+					start_dt = parse_dt_field(e.get("start")) or parse_dt_field(e.get("start_at"))
 					end_dt = parse_dt_field(e.get("end")) or parse_dt_field(e.get("end_at"))
-					aeid = gen_id()
-					cur.execute("INSERT INTO academic_events (id, course_id, title, start_dt, end_dt) VALUES (%s,%s,%s,%s,%s)", (aeid, course_id, title, start_dt, end_dt))
+					# create a base Event, then an AcademicEvent subtype row
+					event_id = gen_id()
+					cur.execute(
+						"INSERT INTO events (Event_ID, title, start_dt, end_dt, status, priority, Course_ID) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+						(event_id, title, start_dt, end_dt, None, None, course_id),
+					)
+					due_dt = parse_dt_field(e.get("due")) or parse_dt_field(e.get("due_at")) or parse_dt_field(e.get("due_dt"))
+					academic_type = e.get("academic_type") or e.get("type")
+					cur.execute("INSERT INTO academic_events (Event_ID, due_dt, academic_type) VALUES (%s,%s,%s)", (event_id, due_dt, academic_type))
 			conn.commit()
 	except Exception as e:
 		conn.rollback()
@@ -307,24 +405,24 @@ def import_canvas_data(conn):
 
 def list_users(conn):
 	with conn.cursor() as cur:
-		cur.execute("SELECT id, username, is_admin FROM users")
+		cur.execute("SELECT User_ID, username, is_admin FROM users")
 		for u in cur.fetchall():
-			print(f"{u['id']}\t{u['username']}\tadmin={bool(u['is_admin'])}")
+			print(f"{u['User_ID']}\t{u['username']}\tadmin={bool(u['is_admin'])}")
 
 
 def list_events(conn, current_user: Optional[dict] = None):
 	print("-- Personal Events --")
 	with conn.cursor() as cur:
 		if current_user and not current_user.get("is_admin"):
-			cur.execute("SELECT * FROM events WHERE owner_id=%s", (current_user["id"],))
+			cur.execute("SELECT * FROM events WHERE User_ID=%s", (current_user["User_ID"],))
 		else:
 			cur.execute("SELECT * FROM events")
 		for e in cur.fetchall():
-			print(f"{e['id']}\t{e['title']}\t{e['start_dt']}\t{e['end_dt']}\towner={e['owner_id']}")
+			print(f"{e['Event_ID']}\t{e['title']}\t{e['start_dt']}\t{e['end_dt']}\towner={e.get('User_ID')}")
 		print("-- Academic Events --")
-		cur.execute("SELECT * FROM academic_events")
+		cur.execute("SELECT ae.Event_ID, ae.due_dt, ae.academic_type, e.title, e.Course_ID FROM academic_events ae JOIN events e ON ae.Event_ID = e.Event_ID")
 		for ae in cur.fetchall():
-			print(f"{ae['id']}\t{ae['title']}\t{ae['start_dt']}\t{ae['end_dt']}\tcourse_id={ae['course_id']}")
+			print(f"{ae['Event_ID']}\t{ae['title'] if 'title' in ae else ''}\t{ae.get('due_dt')}\t{ae.get('academic_type')}\tcourse_id={ae.get('Course_ID')}")
 
 
 def main():
