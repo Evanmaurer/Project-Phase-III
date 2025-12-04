@@ -340,8 +340,9 @@ def delete_event(conn, current_user: Optional[dict] = None):
 
 
 def import_canvas_data(conn):
-	url = input("Canvas API URL (returning courses+events JSON): ").strip()
-	token = input("Optional API token (leave blank if none): ").strip()
+	print("Canvas API URL format: https://your-canvas-instance.instructure.com/api/v1/courses")
+	url = input("Canvas API URL: ").strip()
+	token = input("Canvas API token (get from Account > Settings > Approved Integrations): ").strip()
 	headers = {}
 	if token:
 		headers["Authorization"] = f"Bearer {token}"
